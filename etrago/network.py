@@ -114,6 +114,24 @@ from etrago.tools.utilities import (
     set_random_noise,
     set_trafo_costs,
     update_busmap,
+    adjust_chp_model,
+    adjust_PtH2_model,
+    levelize_abroad_inland_parameters,
+    find_interest_buses,
+    find_links_connected_to_interest_buses,
+    add_extendable_solar_generators_to_interest_area,
+    add_extendable_heat_pumps_to_interest_area,
+    set_battery_parameter_interest_area,
+    set_battery_and_heat_store_parameters_interest_area,
+    add_waste_CHP_ingolstadt,
+    reset_gas_CHP_capacities,
+    add_biogas_CHP_extendable,
+    add_biomass_CHP_extendable,
+    add_biomass_boiler_extendable,
+    adjust_capital_costs,
+    print_capital_costs,
+    replace_gas_links_with_extendable,
+    set_cyclic_constraints
 )
 
 logger = logging.getLogger(__name__)
@@ -390,6 +408,35 @@ class Etrago:
 
     levelize_abroad_inland_parameters = levelize_abroad_inland_parameters
 
+    find_interest_buses = find_interest_buses
+
+    find_links_connected_to_interest_buses = find_links_connected_to_interest_buses
+
+    add_extendable_solar_generators_to_interest_area = add_extendable_solar_generators_to_interest_area
+
+    add_extendable_heat_pumps_to_interest_area = add_extendable_heat_pumps_to_interest_area
+
+    set_battery_parameter_interest_area = set_battery_parameter_interest_area
+
+    set_battery_and_heat_store_parameters_interest_area = set_battery_and_heat_store_parameters_interest_area
+
+    add_waste_CHP_ingolstadt = add_waste_CHP_ingolstadt
+
+    reset_gas_CHP_capacities = reset_gas_CHP_capacities
+
+    add_biogas_CHP_extendable = add_biogas_CHP_extendable
+
+    add_biomass_CHP_extendable = add_biomass_CHP_extendable
+
+    add_biomass_boiler_extendable = add_biomass_boiler_extendable
+
+    adjust_capital_costs = adjust_capital_costs
+
+    print_capital_costs = print_capital_costs
+
+    replace_gas_links_with_extendable = replace_gas_links_with_extendable
+
+    set_cyclic_constraints = set_cyclic_constraints
 
     def dc_lines(self):
         return self.filter_links_by_carrier("DC", like=False)

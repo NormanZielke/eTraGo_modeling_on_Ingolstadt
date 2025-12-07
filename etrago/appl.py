@@ -48,8 +48,9 @@ if "READTHEDOCS" not in os.environ:
     from etrago import Etrago
 
 args = {
+    "nuts_3_map" : "germany-de-nuts-3-regions.geojson",
     # Setup and Configuration:
-    "db": "egon-data",  # database session
+    "db": "egon-data-wam02",  # database session # "egon-data-wam02"
     "gridversion": None,  # None for model_draft or Version number
     "method": {  # Choose method and settings for optimization
         "type": "lopf",  # type of optimization, 'lopf' or 'sclopf'
@@ -72,15 +73,16 @@ args = {
         "q_allocation": "p_nom",  # allocate reactive power via 'p_nom' or 'p'
     },
     "start_snapshot": 1,
-    "end_snapshot": 10,
+    "end_snapshot": 8760,
     "solver": "gurobi",  # glpk, cplex or gurobi
     "solver_options": {
-        "BarConvTol": 1.0e-5,
-        "FeasibilityTol": 1.0e-5,
+        "BarConvTol": 1.0e-9,
+        "FeasibilityTol": 1.0e-9,
         "method": 2,
-        "crossover": 0,
+        "crossover": 1,
         "logFile": "solver_etrago.log",
-        "threads": 7,
+        "threads": 4,
+        "NumericFocus": 0,
         "BarHomogeneous": 1,
     },
     "model_formulation": "kirchhoff",  # angles or kirchhoff
@@ -110,10 +112,12 @@ args = {
         },
     },
     "generator_noise": 789456,  # apply generator noise, False or seed number
-    "extra_functionality": {},  # Choose function name or {}
+    "extra_functionality": {
+       "add_chp_ratio_constraint": {}
+    },  # Choose function name or {}
     # Spatial Complexity:
     "delete_dispensable_ac_buses": True,  # bool. Find and delete expendable buses
-    "interest_area": False,  # False, path to shapefile or list of nuts names of the area that is excluded from the clustering. By default the buses inside remain the same, but the parameter "n_cluster_interest_area" inside "network clustering" defines if it should be clustered to a certain number of buses.
+    "interest_area": ["Ingolstadt"],  # False, path to shapefile or list of nuts names of the area that is excluded from the clustering. By default the buses inside remain the same, but the parameter "n_cluster_interest_area" inside "network clustering" defines if it should be clustered to a certain number of buses.
     "network_clustering_ehv": {
         "active": False,  # choose if clustering of HV buses to EHV buses is activated
         "busmap": False,  # False or path to stored busmap
@@ -123,7 +127,7 @@ args = {
         "method": "kmedoids-dijkstra",  # choose clustering method: kmeans or kmedoids-dijkstra
         "n_clusters_AC": 30,  # total number of resulting AC nodes (DE+foreign-interest_area)
         "cluster_foreign_AC": False,  # take foreign AC buses into account, True or False
-        "n_cluster_interest_area": False, # False or number of buses.
+        "n_cluster_interest_area": 1, # False or number of buses.
         "method_gas": "kmedoids-dijkstra",  # choose clustering method: kmeans or kmedoids-dijkstra
         "n_clusters_gas": 15,  # total number of resulting CH4 nodes (DE+foreign)
         "n_clusters_h2": 15,  # total number of resulting H2 nodes (DE+foreign)
@@ -179,7 +183,7 @@ args = {
         "n_clusters": 5,  # number of periods - only relevant for 'typical_periods'
         "n_segments": 5,  # number of segments - only relevant for segmentation
     },
-    "skip_snapshots": 5,  # False or number of snapshots to skip
+    "skip_snapshots": 3,  # False or number of snapshots to skip
     "temporal_disaggregation": {
         "active": False,  # choose if temporally full complex dispatch optimization should be conducted
         "no_slices": 8,  # number of subproblems optimization is divided into
@@ -700,24 +704,103 @@ def run_etrago(args, json_path):
     """
     etrago = Etrago(args, json_path=json_path)
 
+    print(datetime.datetime.now())
+
     # import network from database
     etrago.build_network_from_db()
 
     # adjust network regarding eTraGo setting
     etrago.adjust_network()
-    
+
+    #import pdb
+    #pdb.set_trace()
+
     # ehv network clustering
     etrago.ehv_clustering()
 
     # spatial clustering
     etrago.spatial_clustering()
-    etrago.spatial_clustering_gas()    
+    etrago.spatial_clustering_gas()
 
     # snapshot clustering
     etrago.snapshot_clustering()
 
     # skip snapshots
     etrago.skip_snapshots()
+
+    print(datetime.datetime.now())
+
+    for comp in etrago.network.iterate_components():
+        for key in comp.pnl:
+            comp.pnl[key].where(
+                comp.pnl[key].abs()>1e-5, other=0., inplace=True)
+    for comp in etrago.network_tsa.iterate_components():
+        for col in comp.df.columns:
+            if comp.df[col].dtype == "float64":
+                comp.df[col].where(
+                    comp.df[col].abs()>1e-5, other=0., inplace=True)
+        for key in comp.pnl:
+            comp.pnl[key].where(
+                comp.pnl[key].abs()>1e-5, other=0., inplace=True)
+    for n in [etrago.network, etrago.network_tsa]:
+        n.mremove("Generator", n.generators[
+            (n.generators.p_nom_extendable == False) &
+            (n.generators.p_nom < 100)].index)
+        import numpy as np
+        n.stores.e_nom_max = np.inf
+        n.links.loc[n.links.carrier == "central_gas_boiler", "p_nom"] = 1e7
+
+        n.links.ramp_limit_up = np.nan
+        n.links.ramp_limit_down = np.nan
+        n.generators.ramp_limit_up = np.nan
+        n.generators.ramp_limit_down = np.nan
+
+    # set interest components to extendable and add additional components
+
+    etrago.print_capital_costs()
+
+    etrago.adjust_capital_costs()
+
+    etrago.print_capital_costs()
+
+    etrago.add_extendable_solar_generators_to_interest_area()
+
+    etrago.reset_gas_CHP_capacities()
+
+    etrago.replace_gas_links_with_extendable()
+
+    etrago.add_biogas_CHP_extendable()
+
+    etrago.add_biomass_CHP_extendable()
+
+    etrago.add_extendable_heat_pumps_to_interest_area()
+
+    etrago.add_waste_CHP_ingolstadt()
+
+    #etrago.add_biomass_boiler_extendable()
+
+    etrago.set_battery_parameter_interest_area()
+    #etrago.set_battery_and_heat_store_parameters_interest_area()
+
+    etrago.set_cyclic_constraints()
+
+    buses_ing = etrago.find_interest_buses()
+
+    gens_ing = etrago.network.generators[etrago.network.generators.bus.isin(buses_ing.index)]
+    gcolumns = ["bus", "carrier", "p_nom", "marginal_cost", "capital_cost", "p_nom_extendable"]
+
+    links_ing = etrago.find_links_connected_to_interest_buses()
+    lcolumns = ["bus0", "bus1", "carrier", "p_nom", "p_nom_extendable", "capital_cost", "marginal_cost"]
+
+    with pd.option_context("display.max_columns", None):
+        print(buses_ing)
+        print(links_ing[lcolumns])
+        print(gens_ing[gcolumns])
+
+    etrago.network.export_to_netcdf("base_network_Scenario_1f.nc")
+
+    #import pdb
+    #pdb.set_trace()
 
     # start linear optimal powerflow calculations
     etrago.optimize()
